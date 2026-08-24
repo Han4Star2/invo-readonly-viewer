@@ -176,6 +176,43 @@ app.post("/api/trades", async (req,res) => {
   }
 });
 
+app.get("/api/public-profile", async (req, res) => {
+  const tag = String(req.query.tag || "")
+    .trim()
+    .replace(/^@/, "");
+
+  if (!tag) {
+    return res.status(400).json({
+      error: "Missing tag"
+    });
+  }
+
+  const url = `https://app.invoapp.com/${encodeURIComponent(tag)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
+    });
+
+    const text = await response.text();
+
+    res.json({
+      ok: true,
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      length: text.length,
+      preview: text.slice(0, 2000)
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Invo read-only viewer: http://localhost:${PORT}`);
 });
