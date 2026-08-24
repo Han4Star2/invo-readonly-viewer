@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Invo Read-only Viewer</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#0d0e11;
+  color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Arial,sans-serif
+}
+main{
+  max-width:760px;
+  margin:auto;
+  padding:22px 16px 50px
+}
+.title{font-size:28px;font-weight:800}
+.sub{color:#8f939c;margin:5px 0 22px}
+.row{display:flex;gap:8px}
+.input{
+  flex:1;
+  min-width:0;
+  background:#17191e;
+  color:#fff;
+  border:1px solid #30333a;
+  border-radius:13px;
+  padding:14px;
+  font-size:16px;
+  outline:none
+}
+.btn{
+  border:0;
+  border-radius:13px;
+  padding:0 16px;
+  background:#fff;
+  color:#111;
+  font-weight:750
+}
+.btn:disabled{opacity:.45}
+.status{
+  margin:12px 0;
+  color:#9a9ea7;
+  font-size:13px
+}
+.err{
+  background:#351a1d;
+  color:#ff7777;
+  padding:13px;
+  border-radius:13px
+}
+.section{
+  font-weight:750;
+  margin:22px 0 9px
+}
+.card{
+  background:#17191e;
+  border:1px solid #2b2e35;
+  border-radius:15px;
+  padding:14px;
+  margin:8px 0
+}
+.name{font-size:17px;font-weight:750}
+.meta,.small{
+  color:#8f939c;
+  font-size:12px;
+  margin-top:5px
+}
+.stats{
+  display:flex;
+  gap:14px;
+  flex-wrap:wrap;
+  margin-top:10px;
+  font-size:12px;
+  color:#c6c9cf
+}
+.trade{
+  display:flex;
+  justify-content:space-between;
+  gap:10px
+}
+.coin{font-size:16px;font-weight:800}
+.long{color:#43d393}
+.short{color:#ff6868}
+</style>
+</head>
+
+<body>
+<main>
+
+<div class="title">Invo Read-only Viewer</div>
+
+<div class="sub">
+Portfolios & verifizierte Trades · keine Orders
+</div>
+
+<div class="row">
+<input
+  id="tag"
+  class="input"
+  placeholder="@AccountTag"
+>
+
+<button id="search" class="btn">
+Suchen
+</button>
+</div>
+
+<div id="status" class="status">
+Bereit.
+</div>
+
+<div id="out"></div>
+
+</main>
+
+<script>
+
+const $=id=>document.getElementById(id);
+
+const esc=v=>String(v??"").replace(
+  /[&<>"']/g,
+  m=>({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#39;"
+  }[m])
+);
+
+const status=t=>$("status").textContent=t;
+
+async function post(url,body){
+
+  const r=await fetch(url,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json"
+    },
+    body:JSON.stringify(body)
+  });
+
+  const d=await r.json();
+
+  if(!r.ok){
+    throw new Error(
+      d.error || "Request failed"
+    );
+  }
+
+  return d;
+}
+
+
+async function search(){
+
+  const tag=$("tag").value.trim();
+
+  if(!tag)return;
+
+  $("search").disabled=true;
+  $("out").innerHTML="";
+  status("Suche…");
+
+  try{
+
+    const d=await post(
+      "/api/portfolios",
+      {tag}
+    );
+
+    if(!d.portfolios.length){
+
+      $("out").innerHTML=
+        '<div class="err">Kein Portfolio gefunden.</div>';
+
+      status("Keine Treffer.");
+      return;
+    }
+
+    $("out").innerHTML=
+      '<div class="section">Portfolios</div>'+
+      d.portfolios.map(p=>{
+
+        const id=
+          p.id ||
+          p.portfolioId ||
+          p._id;
+
+        return `
+        <div
+          class="card portfolio"
+          data-id="${esc(id)}"
+        >
+
+          <div class="name">
+            ${esc(
+              p.title ||
+              p.name ||
+              p.portfolioName ||
+              "Portfolio"
+            )}
+          </div>
+
+          <div class="meta">
+            ID: ${esc(id)}
+          </div>
+
+          <div class="stats">
+
+            ${
+              p.percentChange!=null
+              ? `<span>
+                   P&L ${esc(p.percentChange)}%
+                 </span>`
+              : ""
+            }
+
+            ${
+              p.winRate!=null
+              ? `<span>
+                   Winrate ${esc(p.winRate)}%
+                 </span>`
+              : ""
+            }
+
+            ${
+              p.closedPositions!=null
+              ? `<span>
+                   Closed ${esc(p.closedPositions)}
+                 </span>`
+              : ""
+            }
+
+          </div>
+
+        </div>
+        `;
+
+      }).join("");
+
+
+    document
+      .querySelectorAll(".portfolio")
+      .forEach(x=>{
+
+        x.onclick=()=>
+          trades(x.dataset.id);
+
+      });
+
+    status(
+      "Portfolio auswählen."
+    );
+
+  }catch(e){
+
+    $("out").innerHTML=
+      `<div class="err">
+        ${esc(e.message)}
+       </div>`;
+
+    status("Fehler.");
+
+  }finally{
+
+    $("search").disabled=false;
+
+  }
+
+}
+
+
+async function trades(id){
+
+  $("out").innerHTML="";
+  status("Lade Trades…");
+
+  try{
+
+    const d=await post(
+      "/api/trades",
+      {portfolioId:id}
+    );
+
+    $("out").innerHTML=
+      '<div class="section">Trades</div>'+
+
+      (
+
+        d.trades.length
+
+        ?
+
+        d.trades.map(t=>`
+
+          <div class="card">
+
+            <div class="trade">
+
+              <div>
+
+                <div class="coin">
+
+                  ${esc(t.coin)}
+
+                  <span
+                    class="${
+                      t.side==="long"
+                      ?"long"
+                      :"short"
+                    }"
+                  >
+                    ${t.side.toUpperCase()}
+                  </span>
+
+                </div>
+
+                <div class="small">
+
+                  ${esc(t.action)}
+
+                  ${
+                    t.leverage!=null
+                    ? " · "+esc(t.leverage)+"x"
+                    : ""
+                  }
+
+                </div>
+
+              </div>
+
+              <div style="text-align:right">
+
+                <div>
+                  ${
+                    t.entryPrice!=null
+                    ? "Entry "+esc(t.entryPrice)
+                    : ""
+                  }
+                </div>
+
+                <div class="small">
+
+                  ${
+                    t.closingPrice!=null
+                    ? "Close "+esc(t.closingPrice)
+                    : t.isOpen
+                    ? "OPEN"
+                    : "—"
+                  }
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        `).join("")
+
+        :
+
+        '<div class="card">'+
+        'Keine verifizierten Trades gefunden.'+
+        '</div>'
+
+      )+
+
+      '<button id="back" class="btn" '+
+      'style="height:44px;width:100%;margin-top:10px">'+
+      '← Portfolios'+
+      '</button>';
+
+
+    $("back").onclick=search;
+
+    status(
+      `${d.trades.length} Trades`
+    );
+
+  }catch(e){
+
+    $("out").innerHTML=
+      `<div class="err">
+        ${esc(e.message)}
+       </div>`;
+
+    status("Fehler.");
+
+  }
+
+}
+
+
+$("search").onclick=search;
+
+$("tag").addEventListener(
+  "keydown",
+  e=>{
+    if(e.key==="Enter")search();
+  }
+);
+
+</script>
+
+</body>
+</html>
